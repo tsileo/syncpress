@@ -7,13 +7,13 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"text/template"
 	"time"
 
 	"github.com/extemporalgenome/slug"
 	"github.com/jinzhu/now"
 	"github.com/russross/blackfriday"
 	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/yaml.v1"
 )
 
@@ -22,11 +22,6 @@ var (
 	ColPosts = "posts"
 	ColRaw   = "raw"
 )
-var PostTpl = template.Must(template.New("post").Parse(`title: {{ .Title }}
-slug: {{ .Slug }}
-date: {{ .Date }}
-
-{{ .Body }}`))
 
 type Post struct {
 	Raw     []byte    `bson:"-"`
@@ -55,14 +50,26 @@ func PostsFromPath(path string) ([]*Post, error) {
 	return res, nil
 }
 
+func PostBySlugFromDB(session *mgo.Session, slug string) (*Post, error) {
+	post := &Post{}
+	if err := session.DB(DBName).C(ColPosts).Find(bson.M{"slug": slug}).One(post); err != nil {
+		return nil, err
+	}
+	return post, nil
+}
+
 func PostsFromDB(session *mgo.Session) ([]*Post, error) {
 	res := []*Post{}
-	//session, err := mgo.Dial(host)
-	//defer session.Close()
-	//if err != nil {
-	//	return nil, err
-	//}
 	iter := session.DB(DBName).C(ColPosts).Find(nil).Iter()
+	if err := iter.All(&res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func PostsPaginatedFromDB(session *mgo.Session, page, limit int) ([]*Post, error) {
+	res := []*Post{}
+	iter := session.DB(DBName).C(ColPosts).Find(nil).Sort("-date").Skip((page - 1) * limit).Limit(limit).Iter()
 	if err := iter.All(&res); err != nil {
 		return nil, err
 	}
