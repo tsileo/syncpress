@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"path/filepath"
 	"text/template"
 	"time"
 
+	"github.com/GeertJohan/go.ask"
 	"github.com/extemporalgenome/slug"
 	"github.com/spf13/cobra"
+	"github.com/tsileo/syncpress"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 )
 
 var emptyPost = `title: {{ .title }}
@@ -21,6 +26,12 @@ date: {{ .date }}
 `
 
 var tpl = template.Must(template.New("post").Parse(emptyPost))
+
+func check(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
 
 func main() {
 	var cmdNew = &cobra.Command{
@@ -44,8 +55,67 @@ func main() {
 			}
 		},
 	}
-
+	var cmdSync = &cobra.Command{
+		Use:   "sync [path]",
+		Short: "Sync the given path with the database",
+		Run: func(cmd *cobra.Command, args []string) {
+			//fmt.Printf("%v", ask.MustAskf("ok?"))
+			session, err := mgo.Dial("localhost:27018")
+			defer session.Close()
+			check(err)
+			path := "."
+			if len(args) > 0 {
+				path = args[0]
+			}
+			lindex := map[string]*syncpress.Post{}
+			lposts, err := syncpress.PostsFromPath(path)
+			check(err)
+			col := session.DB(syncpress.DBName).C(syncpress.ColPosts)
+			colraw := session.DB(syncpress.DBName).C(syncpress.ColRaw)
+			for _, post := range lposts {
+				lindex[post.Hash] = post
+				cnt, err := col.Find(bson.M{"hash": post.Hash}).Count()
+				check(err)
+				if cnt == 0 {
+					if ask.MustAskf("Upload new post: \"%v\" ?", post.Title) {
+						if err := col.Insert(post); err != nil {
+							panic(err)
+						}
+						if err := colraw.Insert(bson.M{"hash": post.Hash, "raw": post.Raw}); err != nil {
+							panic(err)
+						}
+						fmt.Printf("post uploaded.\n")
+					}
+				}
+			}
+			rposts, err := syncpress.PostsFromDB(session)
+			for _, post := range rposts {
+				_, exists := lindex[post.Hash]
+				if !exists {
+					if ask.MustAskf("Remove post from database: \"%v\" ?", post.Title) {
+						if err := col.Remove(bson.M{"hash": post.Hash}); err != nil {
+							panic(err)
+						}
+						if err := colraw.Remove(bson.M{"hash": post.Hash}); err != nil {
+							panic(err)
+						}
+					} else {
+						if ask.MustAskf("Redownload post from database: \"%v\" ?", post.Title) {
+							raw := map[string]interface{}{}
+							if err := colraw.Find(bson.M{"hash": post.Hash}).One(&raw); err != nil {
+								panic(err)
+							}
+							if err := ioutil.WriteFile(filepath.Join(path, post.Slug+".md"), raw["raw"].([]byte), 0644); err != nil {
+								panic(err)
+							}
+						}
+					}
+				}
+			}
+			fmt.Printf("Sync done.")
+		},
+	}
 	var rootCmd = &cobra.Command{Use: "syncpress"}
-	rootCmd.AddCommand(cmdNew)
+	rootCmd.AddCommand(cmdNew, cmdSync)
 	rootCmd.Execute()
 }

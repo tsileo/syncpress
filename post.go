@@ -6,22 +6,67 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
+	"text/template"
 	"time"
 
 	"github.com/extemporalgenome/slug"
 	"github.com/jinzhu/now"
 	"github.com/russross/blackfriday"
+	"gopkg.in/mgo.v2"
 	"gopkg.in/yaml.v1"
 )
 
+var (
+	DBName   = "syncpress"
+	ColPosts = "posts"
+	ColRaw   = "raw"
+)
+var PostTpl = template.Must(template.New("post").Parse(`title: {{ .Title }}
+slug: {{ .Slug }}
+date: {{ .Date }}
+
+{{ .Body }}`))
+
 type Post struct {
-	Hash      string
-	Title     string
-	Slug      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Excerpt   []byte
-	Body      []byte
+	Raw     []byte    `bson:"-"`
+	Hash    string    `bson:"hash"`
+	Title   string    `bson:"title"`
+	Slug    string    `bson:"slug"`
+	Date    time.Time `bson:"date"`
+	Updated time.Time `bson:"updated,omitempty"`
+	Excerpt []byte    `bson:"excerpt"`
+	Body    []byte    `bson:"body"`
+}
+
+func PostsFromPath(path string) ([]*Post, error) {
+	res := []*Post{}
+	posts, err := filepath.Glob(filepath.Join(path, "./*.md"))
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range posts {
+		p, err := openPost(f)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, p)
+	}
+	return res, nil
+}
+
+func PostsFromDB(session *mgo.Session) ([]*Post, error) {
+	res := []*Post{}
+	//session, err := mgo.Dial(host)
+	//defer session.Close()
+	//if err != nil {
+	//	return nil, err
+	//}
+	iter := session.DB(DBName).C(ColPosts).Find(nil).Iter()
+	if err := iter.All(&res); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 func openPost(path string) (*Post, error) {
@@ -56,13 +101,14 @@ func openPost(path string) (*Post, error) {
 		}
 	}
 	post := &Post{
-		Title:     meta["title"],
-		Slug:      slug.Slug(meta["title"]),
-		Body:      body,
-		Excerpt:   excerpt,
-		Hash:      fmt.Sprintf("%x", sha1.Sum(res)),
-		CreatedAt: createdAt,
-		UpdatedAt: updatedAt,
+		Title:   meta["title"],
+		Slug:    slug.Slug(meta["title"]),
+		Body:    body,
+		Excerpt: excerpt,
+		Hash:    fmt.Sprintf("%x", sha1.Sum(res)),
+		Date:    createdAt,
+		Updated: updatedAt,
+		Raw:     res,
 	}
 	return post, nil
 }
