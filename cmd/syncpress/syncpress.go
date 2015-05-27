@@ -73,10 +73,10 @@ func main() {
 			col := session.DB(syncpress.DBName).C(syncpress.ColPosts)
 			colraw := session.DB(syncpress.DBName).C(syncpress.ColRaw)
 			for _, post := range lposts {
-				lindex[post.Hash] = post
-				cnt, err := col.Find(bson.M{"hash": post.Hash}).Count()
-				check(err)
-				if cnt == 0 {
+				lindex[post.Slug] = post
+				rpost := &Post{}
+				err := col.Find(bson.M{"slug": post.Slug}).One(rpost)
+				if err == mgo.ErrNotFound {
 					if ask.MustAskf("Upload new post: \"%v\" ?", post.Title) {
 						if err := col.Insert(post); err != nil {
 							panic(err)
@@ -86,12 +86,22 @@ func main() {
 						}
 						fmt.Printf("post uploaded.\n")
 					}
+				} else {
+					check(err)
+				}
+				if post.Hash != rpost.Hash {
+					// TODO handle conflict
 				}
 			}
 			rposts, err := syncpress.PostsFromDB(session)
 			for _, post := range rposts {
-				_, exists := lindex[post.Hash]
-				if !exists {
+				lpost, exists := lindex[post.Slug]
+				if exists {
+					if post.Hash != lpost.Hash {
+						// TODO handle conflict
+					}
+
+				} else {
 					if ask.MustAskf("Remove post from database: \"%v\" ?", post.Title) {
 						if err := col.Remove(bson.M{"hash": post.Hash}); err != nil {
 							panic(err)
