@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"text/template"
 	"time"
@@ -60,7 +61,8 @@ func main() {
 		Short: "Sync the given path with the database",
 		Run: func(cmd *cobra.Command, args []string) {
 			//fmt.Printf("%v", ask.MustAskf("ok?"))
-			session, err := mgo.Dial("localhost:27018")
+			session, err := mgo.Dial(os.Getenv("SYNCPRESS_MONGODB"))
+			dbname := os.Getenv("SYNCPRESS_DB")
 			defer session.Close()
 			check(err)
 			path := "."
@@ -70,11 +72,11 @@ func main() {
 			lindex := map[string]*syncpress.Post{}
 			lposts, err := syncpress.PostsFromPath(path)
 			check(err)
-			col := session.DB(syncpress.DBName).C(syncpress.ColPosts)
-			colraw := session.DB(syncpress.DBName).C(syncpress.ColRaw)
+			col := session.DB(dbname).C(syncpress.ColPosts)
+			colraw := session.DB(dbname).C(syncpress.ColRaw)
 			for _, post := range lposts {
 				lindex[post.Slug] = post
-				rpost := &Post{}
+				rpost := &syncpress.Post{}
 				err := col.Find(bson.M{"slug": post.Slug}).One(rpost)
 				if err == mgo.ErrNotFound {
 					if ask.MustAskf("Upload new post: \"%v\" ?", post.Title) {
@@ -93,7 +95,7 @@ func main() {
 					// TODO handle conflict
 				}
 			}
-			rposts, err := syncpress.PostsFromDB(session)
+			rposts, err := syncpress.PostsFromDB(session, dbname)
 			for _, post := range rposts {
 				lpost, exists := lindex[post.Slug]
 				if exists {

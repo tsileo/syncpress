@@ -50,26 +50,26 @@ func PostsFromPath(path string) ([]*Post, error) {
 	return res, nil
 }
 
-func PostBySlugFromDB(session *mgo.Session, slug string) (*Post, error) {
+func PostBySlugFromDB(session *mgo.Session, dbname, slug string) (*Post, error) {
 	post := &Post{}
-	if err := session.DB(DBName).C(ColPosts).Find(bson.M{"slug": slug}).One(post); err != nil {
+	if err := session.DB(dbname).C(ColPosts).Find(bson.M{"slug": slug}).One(post); err != nil {
 		return nil, err
 	}
 	return post, nil
 }
 
-func PostsFromDB(session *mgo.Session) ([]*Post, error) {
+func PostsFromDB(session *mgo.Session, dbname string) ([]*Post, error) {
 	res := []*Post{}
-	iter := session.DB(DBName).C(ColPosts).Find(nil).Iter()
+	iter := session.DB(dbname).C(ColPosts).Find(nil).Iter()
 	if err := iter.All(&res); err != nil {
 		return nil, err
 	}
 	return res, nil
 }
 
-func PostsPaginatedFromDB(session *mgo.Session, page, limit int) ([]*Post, error) {
+func PostsPaginatedFromDB(session *mgo.Session, dbname string, page, limit int) ([]*Post, error) {
 	res := []*Post{}
-	iter := session.DB(DBName).C(ColPosts).Find(nil).Sort("-date").Skip((page - 1) * limit).Limit(limit).Iter()
+	iter := session.DB(dbname).C(ColPosts).Find(nil).Sort("-date").Skip((page - 1) * limit).Limit(limit).Iter()
 	if err := iter.All(&res); err != nil {
 		return nil, err
 	}
