@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/extemporalgenome/slug"
+	"github.com/gorilla/feeds"
 	"github.com/jinzhu/now"
 	"github.com/russross/blackfriday"
 	"gopkg.in/mgo.v2"
@@ -48,6 +49,33 @@ func PostsFromPath(path string) ([]*Post, error) {
 		res = append(res, p)
 	}
 	return res, nil
+}
+
+func RSSFeed(session *mgo.Session, dbname, title, url, desc, authorName, authorEmail string) (string, error) {
+	now := time.Now()
+	feed := &feeds.Feed{
+		Title:       title,
+		Link:        &feeds.Link{Href: url},
+		Description: desc,
+		Author:      &feeds.Author{authorName, authorEmail},
+		Created:     now,
+	}
+	items := []*feeds.Item{}
+	posts, err := PostsPaginatedFromDB(session, dbname, 1, 10)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range posts {
+		items = append(items, &feeds.Item{
+			Title:       p.Title,
+			Link:        &feeds.Link{Href: url + "/" + p.Slug + "/"},
+			Description: string(p.Excerpt),
+			Author:      &feeds.Author{authorName, authorEmail},
+			Created:     p.Date,
+		})
+	}
+	feed.Items = items
+	return feed.ToRss()
 }
 
 func PostBySlugFromDB(session *mgo.Session, dbname, slug string) (*Post, error) {
